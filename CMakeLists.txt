@@ -5,16 +5,20 @@ project(imhex_plugin)
 # Pin ImHex to a specific target tag.
 # This can be a git tag, branch, or commit hash.
 # Setting the IMHEX_OVERRIDE_TARGET_TAG variable when configuring the project will override this.
-imhex_target_tag(v1.30.1)
+imhex_target_tag(master)
+find_package(ZLIB)
 
 # Create a new ImHex plugin.
 add_imhex_plugin(
     NAME
-        example_cpp
+        zlib
 
     SOURCES
-        source/plugin_example.cpp
+        source/plugin_zlib.cpp
 
     INCLUDES
         include
+        
+    LIBRARIES
+        ZLIB::ZLIB
 )
