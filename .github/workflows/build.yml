@@ -1,0 +1,273 @@
+name: Build
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+
+  # Windows build
+  win:
+    runs-on: windows-2022
+    name: 🪟 Windows MINGW64
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      CCACHE_DIR:      "${{ github.workspace }}/.ccache"
+      CCACHE_MAXSIZE:  "1000M"
+      CCACHE_COMPRESS: "true"
+    steps:
+    - name: 🧰 Checkout
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: 📜 Setup ccache
+      uses:  hendrikmuhs/ccache-action@v1.2
+      id:    cache-ccache
+      with:
+        key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ github.run_id }}
+        restore-keys: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build
+        max-size: 50M
+
+    - name: 📜 Restore CMakeCache
+      uses:  actions/cache@v3
+      with:
+        path: |
+          build/CMakeCache.txt
+        key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+
+    - name: 🟦 Install msys2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: mingw64
+        pacboy: >-
+          gcc:p
+          lld:p
+          cmake:p
+          make:p
+          ccache:p
+          glfw:p
+          file:p
+          mbedtls:p
+          freetype:p
+          dlfcn:p
+          libbacktrace:p
+
+    # Windows cmake build
+    - name: 🛠️ Build
+      run: |
+        mkdir -p build
+        cd build
+
+        cmake -G "MinGW Makefiles"                      \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE                \
+          -DCREATE_PACKAGE=ON                           \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache            \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache          \
+          -DCMAKE_C_FLAGS="-fuse-ld=lld"                \
+          -DCMAKE_CXX_FLAGS="-fuse-ld=lld"              \
+          -DIMHEX_PATTERNS_PULL_MASTER=ON               \
+          -DIMHEX_COMMIT_HASH_SHORT="${GITHUB_SHA::7}"  \
+          -DIMHEX_COMMIT_HASH_LONG="${GITHUB_SHA}"      \
+          -DIMHEX_COMMIT_BRANCH="${GITHUB_REF##*/}"     \
+          ..
+        mingw32-make -j4
+        
+        rm plugins/builtin.hexplug
+        rm plugins/windows.hexplug
+
+    - name: ⬆️ Upload Windows x86_64 artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Windows Plugin
+        path: |
+          build/plugins/*.hexplug
+
+  # MacOS build
+  macos:
+    runs-on: macos-11
+    name: 🍎 macOS 11.0
+
+    steps:
+    - name: 🧰 Checkout
+      uses: actions/checkout@v3
+      with:
+        submodules: recursive
+
+    - name: 📜 Setup ccache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ github.run_id }}
+        restore-keys: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build
+        max-size: 50M
+
+    - name: 📜 Restore CMakeCache
+      uses: actions/cache@v3
+      with:
+        path: |
+          build/CMakeCache.txt
+        key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+
+    - name: ⬇️ Install dependencies
+      run: |
+        brew bundle --no-lock --file ImHex/dist/Brewfile
+        rm -rf /usr/local/Cellar/capstone
+
+    # MacOS cmake build
+    - name: 🛠️ Build
+      run: |
+        mkdir -p build
+        cd build
+        CC=$(brew --prefix gcc@12)/bin/gcc-12                                                       \
+        CXX=$(brew --prefix gcc@12)/bin/g++-12                                                      \
+        OBJC=$(brew --prefix llvm)/bin/clang                                                        \
+        OBJCXX=$(brew --prefix llvm)/bin/clang++                                                    \
+        PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig":"$(brew --prefix)/lib/pkgconfig"   \
+        MACOSX_DEPLOYMENT_TARGET="10.10"                                                            \
+        cmake                                                                                       \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE                                                            \
+          -DCREATE_BUNDLE=ON                                                                        \
+          -DCREATE_PACKAGE=ON                                                                       \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache                                                        \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache                                                      \
+          -DCMAKE_OBJC_COMPILER_LAUNCHER=ccache                                                     \
+          -DCMAKE_OBJCXX_COMPILER_LAUNCHER=ccache                                                   \
+          -DIMHEX_PATTERNS_PULL_MASTER=ON                                                           \
+          -DIMHEX_COMMIT_HASH_SHORT="${GITHUB_SHA::7}"                                              \
+          -DIMHEX_COMMIT_HASH_LONG="${GITHUB_SHA}"                                                  \
+          -DIMHEX_COMMIT_BRANCH="${GITHUB_REF##*/}"                                                 \
+          -DCMAKE_OSX_DEPLOYMENT_TARGET="10.10"                                                     \
+          -DCPACK_PACKAGE_FILE_NAME="imhex-macOS-x86_64"                                            \
+          ..
+        make -j4
+
+    - name: ⬆️ Upload macOS x86_64 artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: macOS Plugin
+        path: |
+          build/*.hexplug
+
+  # Ubuntu build
+  ubuntu:
+    runs-on: ubuntu-22.04
+    name: 🐧 Ubuntu 22.04
+    steps:
+
+      - name: 🧰 Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: 📜 Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ github.run_id }}
+          restore-keys: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build
+          max-size: 50M
+
+      - name: 📜 Restore CMakeCache
+        uses: actions/cache@v3
+        with:
+          path: |
+            build/CMakeCache.txt
+          key: ${{ runner.os }}-${{ secrets.CACHE_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+
+      - name: ⬇️ Install dependencies
+        run: |
+          sudo apt update
+          sudo bash ImHex/dist/get_deps_debian.sh
+
+      # Ubuntu cmake build
+      - name: 🛠️ Build
+        run: |
+          mkdir -p build
+          cd build
+          CC=gcc-12 CXX=g++-12 cmake                      \
+            -DCMAKE_BUILD_TYPE=$BUILD_TYPE                \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache            \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache          \
+            -DIMHEX_PATTERNS_PULL_MASTER=ON               \
+            -DIMHEX_COMMIT_HASH_SHORT="${GITHUB_SHA::7}"  \
+            -DIMHEX_COMMIT_HASH_LONG="${GITHUB_SHA}"      \
+            -DIMHEX_COMMIT_BRANCH="${GITHUB_REF##*/}"     \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON       \
+            ..
+          make -j4
+
+      - name: ⬆️ Upload Debian x86_64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: Ubuntu Plugin
+          path: build/*.hexplug
+
+  # ArchLinux build
+  archlinux-build:
+    name: 🐧 ArchLinux
+    runs-on: ubuntu-latest
+
+    container:
+      image: archlinux:base-devel
+
+    steps:
+      - name: ⬇️ Update all packages
+        run: |
+          pacman -Syyu --noconfirm
+
+      - name: ⬇️ Install setup dependencies
+        run: |
+          pacman -Syu git ccache --noconfirm
+
+      - name: 🧰 Checkout
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: ⬇️ Install ImHex dependencies
+        run: |
+          ImHex/dist/get_deps_archlinux.sh --noconfirm
+
+      - name: 📜 Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: archlinux-${{ secrets.CACHE_VERSION }}-build-${{ github.run_id }}
+          restore-keys: archlinux-${{ secrets.CACHE_VERSION }}-build
+          max-size: 50M
+
+      - name: 📜 Restore CMakeCache
+        uses: actions/cache@v3
+        with:
+          path: |
+            build/CMakeCache.txt
+          key: archlinux-${{ secrets.CACHE_VERSION }}-build-${{ hashFiles('**/CMakeLists.txt') }}
+
+      # ArchLinux cmake build
+      - name: 🛠️ Build
+        run: |
+          mkdir -p build
+          cd build
+          CC=gcc CXX=g++ cmake                          \
+          -DCMAKE_BUILD_TYPE=$BUILD_TYPE                \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache            \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache          \
+          -DIMHEX_PATTERNS_PULL_MASTER=ON               \
+          -DIMHEX_COMMIT_HASH_SHORT="${GITHUB_SHA::7}"  \
+          -DIMHEX_COMMIT_HASH_LONG="${GITHUB_SHA}"      \
+          -DIMHEX_COMMIT_BRANCH="${GITHUB_REF##*/}"     \
+          -DCMAKE_INTERPROCEDURAL_OPTIMIZATION=ON       \
+          ..
+          make -j4
+
+      - name: ⬆️ Upload ArchLinux x86_64 artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ArchLinux Plugin
+          path: |
+            build/*.hexplug
