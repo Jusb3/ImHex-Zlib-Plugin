@@ -1,6 +1,6 @@
-# ImHex C++ Plugin Template
+# ImHex Zlib Plugib
 
-This repository is a template repository for building plugins for ImHex in C++.
+This repository contains source code to build a plugin for ImHex. This plugin adds `zlib::decompress(u8[] bytes)` function to the [PatternLanguage](https://github.com/WerWolv/PatternLanguage). The plugin is effectively a wrapper to the [Zlib](https://github.com/madler/zlib) inflate. Zlib inflate can decompress raw deflate, zlib wrapped deflate and gzip wrapped deflate streams.
 
 ## Building
 
